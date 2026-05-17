@@ -59,3 +59,11 @@ async def login(
         ),
         "token_type": "bearer",
     }
+
+from app.api.deps import get_current_active_user
+
+@router.get("/me", response_model=UserSchema)
+async def get_me(
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    return current_user
