@@ -13,6 +13,17 @@ from app.api.deps import get_current_active_user
 
 router = APIRouter()
 
+@router.get("/me", response_model=Optional[CoupleSchema])
+async def get_current_couple(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    if not current_user.couple_id:
+        return None
+    result = await db.execute(select(Couple).filter(Couple.id == current_user.couple_id))
+    return result.scalars().first()
+
+
 def generate_invite_code(length=8):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
@@ -22,8 +33,20 @@ async def create_invite(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     if current_user.couple_id:
-        raise HTTPException(status_code=400, detail="User already in a couple")
-    
+        # Check if they have an active partner
+        partner_result = await db.execute(
+            select(User).filter(User.couple_id == current_user.couple_id, User.id != current_user.id)
+        )
+        partner = partner_result.scalars().first()
+        if partner:
+            raise HTTPException(status_code=400, detail="User already in a couple with a partner")
+            
+        # Return existing empty couple
+        couple_result = await db.execute(select(Couple).filter(Couple.id == current_user.couple_id))
+        couple = couple_result.scalars().first()
+        if couple:
+            return couple
+            
     # Create new couple with an invite code
     code = generate_invite_code()
     couple = Couple(invite_code=code)
@@ -46,7 +69,25 @@ async def accept_invite(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     if current_user.couple_id:
-        raise HTTPException(status_code=400, detail="User already in a couple")
+        # Check if they have an active partner
+        partner_result = await db.execute(
+            select(User).filter(User.couple_id == current_user.couple_id, User.id != current_user.id)
+        )
+        partner = partner_result.scalars().first()
+        if partner:
+            raise HTTPException(status_code=400, detail="User already in a couple with a partner")
+            
+        # Clean up their old empty couple
+        old_couple_id = current_user.couple_id
+        current_user.couple_id = None
+        db.add(current_user)
+        await db.commit()
+        
+        old_couple_result = await db.execute(select(Couple).filter(Couple.id == old_couple_id))
+        old_couple = old_couple_result.scalars().first()
+        if old_couple:
+            await db.delete(old_couple)
+            await db.commit()
         
     result = await db.execute(select(Couple).filter(Couple.invite_code == invite_code))
     couple = result.scalars().first()
@@ -55,7 +96,7 @@ async def accept_invite(
         raise HTTPException(status_code=404, detail="Invalid invite code")
         
     current_user.couple_id = couple.id
-    # Once accepted, maybe invalidate the invite code to prevent others from using it
+    # Once accepted, invalidate the invite code to prevent others from using it
     couple.invite_code = None 
     db.add(current_user)
     db.add(couple)
