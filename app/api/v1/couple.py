@@ -11,6 +11,8 @@ from app.models.couple import Couple
 from app.schemas.couple import Couple as CoupleSchema, CoupleCreate
 from app.api.deps import get_current_active_user
 
+from sqlalchemy.orm import selectinload
+
 router = APIRouter()
 
 @router.get("/me", response_model=Optional[CoupleSchema])
@@ -20,7 +22,11 @@ async def get_current_couple(
 ) -> Any:
     if not current_user.couple_id:
         return None
-    result = await db.execute(select(Couple).filter(Couple.id == current_user.couple_id))
+    result = await db.execute(
+        select(Couple)
+        .filter(Couple.id == current_user.couple_id)
+        .options(selectinload(Couple.partners))
+    )
     return result.scalars().first()
 
 
@@ -42,7 +48,11 @@ async def create_invite(
             raise HTTPException(status_code=400, detail="User already in a couple with a partner")
             
         # Return existing empty couple
-        couple_result = await db.execute(select(Couple).filter(Couple.id == current_user.couple_id))
+        couple_result = await db.execute(
+            select(Couple)
+            .filter(Couple.id == current_user.couple_id)
+            .options(selectinload(Couple.partners))
+        )
         couple = couple_result.scalars().first()
         if couple:
             return couple
@@ -60,7 +70,13 @@ async def create_invite(
     await db.commit()
     await db.refresh(couple)
     
-    return couple
+    # Return couple with loaded partners
+    result = await db.execute(
+        select(Couple)
+        .filter(Couple.id == couple.id)
+        .options(selectinload(Couple.partners))
+    )
+    return result.scalars().first()
 
 @router.post("/accept", response_model=CoupleSchema)
 async def accept_invite(
@@ -103,7 +119,13 @@ async def accept_invite(
     await db.commit()
     await db.refresh(couple)
     
-    return couple
+    # Return couple with loaded partners
+    result = await db.execute(
+        select(Couple)
+        .filter(Couple.id == couple.id)
+        .options(selectinload(Couple.partners))
+    )
+    return result.scalars().first()
 
 @router.post("/mood")
 async def update_mood(
