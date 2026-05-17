@@ -171,7 +171,7 @@ async def get_latest_affection(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     if not current_user.couple_id:
-        raise HTTPException(status_code=400, detail="User not in a couple")
+        return None
         
     result = await db.execute(
         select(Affection)
