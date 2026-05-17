@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1 import auth, couple, chat
+from app.api.v1 import auth, couple, chat, memories
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -21,6 +21,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(couple.router, prefix=f"{settings.API_V1_STR}/couple", tags=["couple"])
+app.include_router(memories.router, prefix=f"{settings.API_V1_STR}/memories", tags=["memories"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}", tags=["chat"])
 
 @app.get("/")

@@ -10,6 +10,7 @@ class Couple(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     anniversary_date = Column(DateTime(timezone=True), nullable=True)
+    next_meetup_date = Column(DateTime(timezone=True), nullable=True)
     invite_code = Column(String, unique=True, index=True, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())

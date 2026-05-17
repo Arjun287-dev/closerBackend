@@ -63,3 +63,120 @@ async def accept_invite(
     await db.refresh(couple)
     
     return couple
+
+@router.post("/mood")
+async def update_mood(
+    mood: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    current_user.current_mood = mood
+    db.add(current_user)
+    await db.commit()
+    return {"status": "success", "mood": mood}
+
+@router.post("/battery")
+async def update_battery(
+    level: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    current_user.battery_level = level
+    db.add(current_user)
+    await db.commit()
+    return {"status": "success", "battery_level": level}
+
+@router.post("/meetup")
+async def update_meetup(
+    meetup_date: str, # ISO string format
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    if not current_user.couple_id:
+        raise HTTPException(status_code=400, detail="User not in a couple")
+    
+    result = await db.execute(select(Couple).filter(Couple.id == current_user.couple_id))
+    couple = result.scalars().first()
+    if not couple:
+        raise HTTPException(status_code=404, detail="Couple not found")
+    
+    from datetime import datetime
+    try:
+        dt = datetime.fromisoformat(meetup_date.replace("Z", "+00:00"))
+        couple.next_meetup_date = dt
+        db.add(couple)
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+        
+    return {"status": "success", "next_meetup_date": couple.next_meetup_date}
+
+@router.get("/status")
+async def get_couple_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    if not current_user.couple_id:
+        return {
+            "in_couple": False,
+            "partner_name": None,
+            "partner_mood": None,
+            "partner_battery": None,
+            "next_meetup": None
+        }
+    
+    # Get partner
+    result = await db.execute(
+        select(User).filter(User.couple_id == current_user.couple_id, User.id != current_user.id)
+    )
+    partner = result.scalars().first()
+    
+    # Get couple info
+    couple_result = await db.execute(select(Couple).filter(Couple.id == current_user.couple_id))
+    couple = couple_result.scalars().first()
+    
+    return {
+        "in_couple": True,
+        "partner_name": partner.name if partner else "Waiting for partner...",
+        "partner_mood": partner.current_mood if partner else "Unknown",
+        "partner_battery": partner.battery_level if partner else "100%",
+        "next_meetup": couple.next_meetup_date if couple else None
+    }
+
+from app.models.affection import Affection
+from app.schemas.affection import AffectionCreate, AffectionResponse
+
+@router.post("/affection", response_model=AffectionResponse)
+async def send_affection(
+    affection_in: AffectionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    if not current_user.couple_id:
+        raise HTTPException(status_code=400, detail="User not in a couple")
+    
+    affection = Affection(
+        type=affection_in.type,
+        sender_id=current_user.id,
+        couple_id=current_user.couple_id
+    )
+    db.add(affection)
+    await db.commit()
+    await db.refresh(affection)
+    return affection
+
+@router.get("/affection/latest", response_model=Optional[AffectionResponse])
+async def get_latest_affection(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    if not current_user.couple_id:
+        raise HTTPException(status_code=400, detail="User not in a couple")
+        
+    result = await db.execute(
+        select(Affection)
+        .filter(Affection.couple_id == current_user.couple_id, Affection.sender_id != current_user.id)
+        .order_by(Affection.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
